@@ -1,7 +1,17 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Server } from "node:http";
 import { createApp } from "../../../index.ts";
-import { analyzeTicketBodySchema } from "./analyze-ticket.schema.ts";
+import {
+  analyzeTicketBodySchema,
+  type AnalyzeTicketResponse,
+} from "./analyze-ticket.schema.ts";
+
+interface ApiErrorBody {
+  error: {
+    code: string;
+    message: string;
+  };
+}
 
 const validPayload = {
   ticket_id: "TKT-001",
@@ -109,7 +119,7 @@ describe("POST /analyze-ticket", () => {
     });
 
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = (await response.json()) as AnalyzeTicketResponse;
     expect(body.ticket_id).toBe("TKT-001");
     expect(body).toHaveProperty("evidence_verdict");
     expect(body).toHaveProperty("customer_reply");
@@ -124,7 +134,7 @@ describe("POST /analyze-ticket", () => {
     });
 
     expect(response.status).toBe(400);
-    const body = await response.json();
+    const body = (await response.json()) as ApiErrorBody;
     expect(body.error.code).toBe("validation_error");
   });
 
@@ -136,7 +146,7 @@ describe("POST /analyze-ticket", () => {
     });
 
     expect(response.status).toBe(415);
-    const body = await response.json();
+    const body = (await response.json()) as ApiErrorBody;
     expect(body.error.code).toBe("unsupported_media_type");
   });
 });

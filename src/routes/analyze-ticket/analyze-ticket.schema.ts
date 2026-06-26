@@ -11,6 +11,7 @@ import {
   userTypeSchema,
 } from "../../schemas/enums.ts";
 import { ID_PATTERN, LIMITS } from "../../schemas/limits.ts";
+import validateUserInput from "../../utils/validate-user-input.ts";
 
 const isoTimestampSchema = z
   .string()
@@ -20,16 +21,12 @@ const isoTimestampSchema = z
     message: "timestamp must be a valid ISO 8601 date",
   });
 
-const metadataValueSchema: z.ZodType<MetadataPrimitive | MetadataPrimitive[]> =
-  z.lazy(() =>
-    z.union([
-      z.string().max(500),
-      z.number().finite(),
-      z.boolean(),
-      z.null(),
-      z.array(metadataValueSchema).max(20),
-    ]),
-  );
+const metadataValueSchema = z.union([
+  z.string().max(500),
+  z.number().finite(),
+  z.boolean(),
+  z.null(),
+]);
 
 const metadataSchema = z
   .record(
@@ -135,25 +132,26 @@ export type AnalyzeTicketBody = z.infer<typeof analyzeTicketBodySchema>;
 export type AnalyzeTicketTransaction = z.infer<typeof transactionSchema>;
 export type AnalyzeTicketResponse = z.infer<typeof analyzeTicketResponseSchema>;
 
-type MetadataPrimitive = string | number | boolean | null;
-
 /** Safe placeholder until the analyzer pipeline is implemented. */
 export function buildStubResponse(
   body: AnalyzeTicketBody,
 ): AnalyzeTicketResponse {
-  return {
-    ticket_id: body.ticket_id,
-    relevant_transaction_id: null,
-    evidence_verdict: "insufficient_data",
-    case_type: "other",
-    severity: "low",
-    department: "customer_support",
-    agent_summary:
-      "Ticket received and validated. Full complaint analysis is not yet implemented.",
-    recommended_next_action:
-      "Complete analyzer implementation to classify the case and route to the correct department.",
-    customer_reply:
-      "Thank you for reaching out. Our team is reviewing your case and will contact you through official support channels. Please do not share your PIN or OTP with anyone.",
-    human_review_required: false,
-  };
+  const validated = validateUserInput(body);
+  return validated
+    ? validated
+    : {
+        ticket_id: body.ticket_id,
+        relevant_transaction_id: null,
+        evidence_verdict: "insufficient_data",
+        case_type: "other",
+        severity: "low",
+        department: "customer_support",
+        agent_summary:
+          "Ticket received and validated. Full complaint analysis is not yet implemented.",
+        recommended_next_action:
+          "Complete analyzer implementation to classify the case and route to the correct department.",
+        customer_reply:
+          "Thank you for reaching out. Our team is reviewing your case and will contact you through official support channels. Please do not share your PIN or OTP with anyone.",
+        human_review_required: false,
+      };
 }
