@@ -1,0 +1,17 @@
+/.puku
+node_modules/
+/node_modules
+**/*.env***/.env.*
+**/.env
+**/.env.local
+**/.env.development
+**/.env.production
+**/.env.test
+**/.env.staging
+**/.env.*.local
+**/.env.*.development
+**/.env.*.production
+**/.env.*.test
+**/.env.*.staging
+.agents
+.cursor
