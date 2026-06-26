@@ -13,5 +13,5 @@ node_modules/
 **/.env.*.production
 **/.env.*.test
 **/.env.*.staging
-.agents
-.cursor
+# .agents
+# .cursor
