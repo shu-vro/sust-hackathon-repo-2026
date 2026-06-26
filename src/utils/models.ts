@@ -10,7 +10,8 @@ export const DEFAULT_MODEL = "google/gemini-2.5-flash-lite";
 export const FLASH_MODEL = "google/gemini-2.5-flash";
 
 /** Heavier Gemini model for complex evidence analysis. */
-export const PRO_MODEL = "google/gemini-3.1-pro-preview";
+// export const PRO_MODEL = "google/gemini-3.1-pro-preview";
+export const PRO_MODEL = "google/gemini-2.5-flash";
 
 /** Prefer Google AI Studio routing for the configured Gemini flash-lite model. */
 export const DEFAULT_PROVIDERS = ["google-ai-studio"] as const;
