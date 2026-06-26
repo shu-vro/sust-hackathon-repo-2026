@@ -1,9 +1,13 @@
-import express, { type Application, type Request, type Response, type NextFunction } from "express";
+import express, { type Application } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import { config } from "./src/config/env.ts";
 import { requestLogger } from "./src/middleware/logger.ts";
-import { errorHandler, notFoundHandler } from "./src/middleware/errorHandler.ts";
+import {
+  errorHandler,
+  notFoundHandler,
+} from "./src/middleware/errorHandler.ts";
+import { analyzeTicketRouter } from "./src/routes/analyze-ticket/analyze-ticket.router.ts";
 import { healthRouter } from "./src/routes/health/health.router.ts";
 import { v1Router } from "./src/routes/v1/index.ts";
 
@@ -19,13 +23,8 @@ export function createApp(): Application {
   app.use(express.urlencoded({ extended: false, limit: "100kb" }));
   app.use(requestLogger);
 
-  app.use(async function (req:Request, res: Response, next: NextFunction) {
-    req._success = async (data, status) => {
-        res.status(status || 200).json(data);
-    }
-  })
-
   app.use("/health", healthRouter);
+  app.use("/analyze-ticket", analyzeTicketRouter);
   app.use(config.apiPrefix, v1Router);
 
   app.use(notFoundHandler);
@@ -34,24 +33,29 @@ export function createApp(): Application {
   return app;
 }
 
-const app = createApp();
-
-const server = app.listen(config.port, config.host, () => {
-  console.log(`[server] listening on http://${config.host}:${config.port}`);
-  console.log(`[server] env=${config.nodeEnv} api=${config.apiPrefix}`);
-});
-
-function shutdown(signal: NodeJS.Signals): void {
-  console.log(`[server] received ${signal}, shutting down`);
-  server.close((err) => {
-    if (err) {
-      console.error("[server] error during shutdown", err);
-      process.exit(1);
-    }
-    process.exit(0);
+function startServer(): void {
+  const app = createApp();
+  const server = app.listen(config.port, config.host, () => {
+    console.log(`[server] listening on http://${config.host}:${config.port}`);
+    console.log(`[server] env=${config.nodeEnv} api=${config.apiPrefix}`);
   });
-  setTimeout(() => process.exit(1), 10_000).unref();
+
+  function shutdown(signal: NodeJS.Signals): void {
+    console.log(`[server] received ${signal}, shutting down`);
+    server.close((err) => {
+      if (err) {
+        console.error("[server] error during shutdown", err);
+        process.exit(1);
+      }
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(1), 10_000).unref();
+  }
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+if (import.meta.main) {
+  startServer();
+}
