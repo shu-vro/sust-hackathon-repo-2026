@@ -29,29 +29,43 @@ _AI / API SupportOps Challenge for Digital Finance_
 2. What You Are Building
 3. The Investigator Twist
 4. API Contract
-   - 4.1 HTTP Response Codes
+
+- 4.1 HTTP Response Codes
+
 5. Request Schema
-   - 5.1 Request Fields
-   - 5.2 Transaction History Entry
+
+- 5.1 Request Fields
+- 5.2 Transaction History Entry
+
 6. Response Schema
-   - 6.1 Response Fields
+
+- 6.1 Response Fields
+
 7. Enums and Taxonomy
-   - 7.1 case_type
-   - 7.2 department
+
+- 7.1 case_type
+- 7.2 department
+
 8. Safety Rules
 9. Runtime Profile
-   - 9.1 Allowed External Services
-   - 9.2 Secret Handling
+
+- 9.1 Allowed External Services
+- 9.2 Secret Handling
+
 10. Submission Paths
 11. Required Deliverables
 12. Resources Provided
 13. Public Sample Case Pack
-    - 13.1 What you can use it for
-    - 13.2 What it is not
+
+- 13.1 What you can use it for
+  - 13.2 What it is not
+
 14. Evaluation Overview
-    - 14.1 Two Stage Evaluation
-    - 14.2 Scoring Categories
-    - 14.3 Hidden Tests
+
+- 14.1 Two Stage Evaluation
+  - 14.2 Scoring Categories
+  - 14.3 Hidden Tests
+
 15. Companion Documents
 
 ---
@@ -260,7 +274,7 @@ Build to the profile below. Sizing values are preferred guidance for teams deplo
 
 | Item                                 | Guidance                                                                                          | Type      |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------- | --------- |
-| CPU and memory                       | 2 vCPU and 4 GB RAM is sufficient for this task.                                                  | Preferred |
+| CPU and memory                       | 2 vCPU and 2 GB RAM is sufficient for this task.                                                  | Preferred |
 | GPU                                  | Not required and not recommended. The task does not benefit from one.                             | Preferred |
 | Docker image size                    | Keep under 5 GB if possible. Pull large models at runtime rather than baking them into the image. | Preferred |
 | Per request response time            | POST /analyze-ticket must respond within 30 seconds.                                              | Enforced  |
@@ -327,7 +341,7 @@ A companion file, SUST_Preli_Sample_Cases.json, is published alongside this prob
 
 | Use                      | How                                                                                                                                                                                     |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Understand the schema    | Read the \_meta.schema_notes and \_meta.allowed_enums blocks at the top of the file for the full list of required fields, optional fields, and accepted enum values.                    |
+| Understand the schema    | Read the meta.schema_notes and meta.allowed_enums blocks at the top of the file for the full list of required fields, optional fields, and accepted enum values.                        |
 | Build a local test set   | Each case has an input object and an expected_output object. Hit your deployed POST /analyze-ticket with the input and compare your service's response against the expected_output.     |
 | Calibrate your reasoning | Read the rationale field on each case. It explains why the expected output is shaped the way it is, including the safety choices in customer_reply and the routing logic in department. |
 
