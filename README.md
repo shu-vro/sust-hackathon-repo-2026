@@ -141,7 +141,7 @@ POST /analyze-ticket
           ▼
 ┌─────────────────────┐
 │  Layer 2 —          │  LLM investigator (primary) with few-shot examples
-│  Investigator       │  from the official sample pack; rule-based fallback
+│  Investigator       │  from the official sample pack (LLM-only; no rules fallback)
 └─────────┬───────────┘
           ▼
 ┌─────────────────────┐
@@ -158,9 +158,7 @@ POST /analyze-ticket
    - Model selection: `gemini-2.5-flash` for simpler tickets; `gemini-3.1-pro-preview` for complex evidence (multiple transactions, Bangla, merchant cases).
    - Structured output via Zod schema; 25s internal timeout to stay under the 30s harness limit.
 
-2. **Fallback path — rule-based investigator** (`ticket-investigator.rules.ts`)
-   - Pattern matching on complaint text (English + Bangla), amount/time/phone extraction, transaction scoring, and evidence verdict derivation.
-   - Used when `OPENROUTER_API_KEY` is unset or the LLM call fails — keeps the API reachable and schema-valid during judging.
+2. **Rules engine** (`ticket-investigator.rules.ts`) — offline test reference only; not used on the live API path.
 
 3. **Evaluation pipeline** (development)
    - `bun run eval:sample-cases` hits a running server with all 10 public cases in parallel.
@@ -172,7 +170,7 @@ Key source files:
 |------|------|
 | `src/routes/analyze-ticket/ticket-investigator.agent.ts` | LLM + rules orchestration |
 | `src/routes/analyze-ticket/ticket-investigator.prompt.ts` | Investigator prompt + few-shot I/O |
-| `src/routes/analyze-ticket/ticket-investigator.rules.ts` | Deterministic fallback investigator |
+| `src/routes/analyze-ticket/ticket-investigator.rules.ts` | Offline rules reference (tests only) |
 | `src/routes/analyze-ticket/ticket-investigator.safety.ts` | Output safety post-processing |
 | `src/routes/analyze-ticket/ticket-investigator.guardrails.ts` | Structural output checks |
 | `src/utils/validate-user-input.ts` | Input guardrails (injection, harvesting) |
@@ -200,7 +198,7 @@ All models are accessed through [OpenRouter](https://openrouter.ai), routed to *
 
 **Cost reasoning:** Flash Lite handles cheap pre-screening; Flash covers the majority of tickets at lower cost; Pro is reserved for cases where evidence reasoning is hardest. No LLM credits are provided by organizers.
 
-**Without an API key:** the service still runs using the rule-based fallback — useful for schema/health checks and CI, but LLM quality is higher for hidden cases.
+**`OPENROUTER_API_KEY` is required.** The server refuses to start without it, and `POST /analyze-ticket` returns `503` if the LLM call fails — there is no silent rules fallback.
 
 ---
 
@@ -287,7 +285,6 @@ docs/
 
 ## Known limitations
 
-- Rule-based fallback covers common patterns but will miss nuanced hidden-case edge cases that the LLM handles better.
 - LLM responses may vary in wording; decision fields are constrained by schema + guardrails but not byte-identical to reference outputs.
 - Multilingual quality depends on model selection; Bangla is supported but mixed Banglish is less tested.
 - Unicode-split or heavily obfuscated injection may bypass regex rules; the optional LLM guardrail helps but is network-dependent.

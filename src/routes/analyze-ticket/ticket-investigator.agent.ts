@@ -1,3 +1,4 @@
+import { HttpError } from "../../middleware/errorHandler.ts";
 import { hasOpenRouterApiKey } from "../../utils/models.ts";
 import {
   analyzeTicketResponseSchema,
@@ -5,20 +6,28 @@ import {
   type AnalyzeTicketResponse,
 } from "./analyze-ticket.schema.ts";
 import { investigateTicketWithLlm } from "./ticket-investigator.llm.ts";
-import { investigateTicketWithRules } from "./ticket-investigator.rules.ts";
 
-/** Run the LLM investigator with rules fallback when the API key is missing or the LLM fails. */
+/** Run the structured LLM investigator. Rules fallback is not used on the live path. */
 export async function runInvestigatorAgent(
   body: AnalyzeTicketBody,
 ): Promise<AnalyzeTicketResponse> {
   if (!hasOpenRouterApiKey()) {
-    return investigateTicketWithRules(body);
+    throw new HttpError(
+      503,
+      "Ticket investigation requires OPENROUTER_API_KEY",
+      { code: "llm_not_configured" },
+    );
   }
 
   try {
     const response = await investigateTicketWithLlm(body);
     return analyzeTicketResponseSchema.parse(response);
-  } catch {
-    return investigateTicketWithRules(body);
+  } catch (err) {
+    const cause = err instanceof Error ? err.message : "Unknown LLM error";
+    console.error("[investigator] LLM request failed:", cause);
+    throw new HttpError(503, "Ticket investigation failed", {
+      code: "llm_investigation_failed",
+      cause,
+    });
   }
 }

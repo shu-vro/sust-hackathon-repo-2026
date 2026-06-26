@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import buildModels, { DEFAULT_MODEL, DISABLED_REASONING_KWARGS } from "./models.ts";
+import buildModels, {
+  DEFAULT_MODEL,
+  DISABLED_REASONING_KWARGS,
+  FLASH_MODEL,
+  PRO_MODEL,
+} from "./models.ts";
 
 describe("buildModels", () => {
   test("throws when OPENROUTER_API_KEY is missing", async () => {
@@ -18,14 +23,16 @@ describe("buildModels", () => {
     }
   });
 
-  test("disables OpenRouter reasoning on all models", async () => {
+  test("disables OpenRouter reasoning on flash models only", async () => {
     const original = process.env.OPENROUTER_API_KEY;
     process.env.OPENROUTER_API_KEY = "test-key";
 
     try {
       const models = await buildModels();
-      const model = await models.openrouter();
-      expect(model.modelKwargs).toEqual(DISABLED_REASONING_KWARGS);
+      const flash = await models.openrouter(FLASH_MODEL);
+      expect(flash.modelKwargs).toEqual(DISABLED_REASONING_KWARGS);
+      const pro = await models.openrouter(PRO_MODEL);
+      expect(pro.modelKwargs).toEqual({});
     } finally {
       if (original) {
         process.env.OPENROUTER_API_KEY = original;

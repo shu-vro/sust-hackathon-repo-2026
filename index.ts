@@ -9,6 +9,7 @@ import {
 } from "./src/middleware/errorHandler.ts";
 import { analyzeTicketRouter } from "./src/routes/analyze-ticket/analyze-ticket.router.ts";
 import { healthRouter } from "./src/routes/health/health.router.ts";
+import { hasOpenRouterApiKey } from "./src/utils/models.ts";
 
 export function createApp(): Application {
   const app = express();
@@ -32,6 +33,13 @@ export function createApp(): Application {
 }
 
 function startServer(): void {
+  if (!hasOpenRouterApiKey()) {
+    console.error(
+      "[server] OPENROUTER_API_KEY is required — all ticket analysis is routed through the LLM",
+    );
+    process.exit(1);
+  }
+
   const app = createApp();
   const server = app.listen(config.port, config.host, () => {
     console.log(`[server] listening on http://${config.host}:${config.port}`);

@@ -5,8 +5,8 @@ import {
   OFFICIAL_SAMPLE_CASES,
   OFFICIAL_SAMPLE_PACK_META,
 } from "./sample-cases.loader.ts";
+import { investigateTicketWithRules } from "./ticket-investigator.rules.ts";
 import {
-  readAnalyzeTicketResponse,
   setupAnalyzeTicketTestServer,
 } from "./route-test-helpers.ts";
 import {
@@ -25,13 +25,6 @@ const LIVE_LLM_TEST_TIMEOUT_MS = 180_000;
 beforeEach(() => {
   process.env.ENABLE_LLM_GUARDRAIL = "false";
 });
-
-/** Force rules fallback — never call OpenRouter in these suites. */
-function useRulesFallbackOnly(): void {
-  beforeEach(() => {
-    delete process.env.OPENROUTER_API_KEY;
-  });
-}
 
 describe("official sample pack metadata", () => {
   test("loads all 10 cases from SUST_Preli_Sample_Cases.json", () => {
@@ -62,13 +55,11 @@ describe("official sample pack metadata", () => {
 
 const offlineDescribe = RUN_LIVE_LLM ? describe.skip : describe;
 
-offlineDescribe("agent output vs official sample pack — rules fallback (offline)", () => {
-  useRulesFallbackOnly();
-
+offlineDescribe("rules engine vs official sample pack (offline reference)", () => {
   test.each(
     OFFICIAL_SAMPLE_CASES.map((sample) => [sample.id, sample.label, sample] as const),
   )("%s — %s", async (_id, _label, sample) => {
-    const result = await analyzeTicket(sample.input);
+    const result = investigateTicketWithRules(sample.input);
 
     assertConformsToResponseSchema(result);
     assertValidAnalyzeTicketResponse(
@@ -83,34 +74,22 @@ offlineDescribe("agent output vs official sample pack — rules fallback (offlin
   });
 });
 
-offlineDescribe("agent output vs official sample pack (POST /analyze-ticket) — rules fallback", () => {
-  useRulesFallbackOnly();
+offlineDescribe("rules engine (POST /analyze-ticket is LLM-only; offline uses direct rules helper)", () => {
   const { postTicket } = setupAnalyzeTicketTestServer();
 
-  test.each(
-    OFFICIAL_SAMPLE_CASES.map((sample) => [sample.id, sample.label, sample] as const),
-  )("%s — %s", async (_id, _label, sample) => {
-    const response = await postTicket(sample.input);
-    expect(response.status).toBe(200);
+  test("POST /analyze-ticket requires OPENROUTER_API_KEY", async () => {
+    const original = process.env.OPENROUTER_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
 
-    const result = assertConformsToResponseSchema(await response.json());
-    assertValidAnalyzeTicketResponse(
-      result,
-      (sample.input.transaction_history ?? []).map((txn) => txn.transaction_id),
-    );
-    assertMatchesOfficialSampleOutput(
-      result,
-      sample.expected_output,
-      sample.input,
-    );
-  });
-
-  test("response ticket_id always matches posted input across all samples", async () => {
-    for (const sample of OFFICIAL_SAMPLE_CASES) {
-      const response = await postTicket(sample.input);
-      expect(response.status).toBe(200);
-      const body = await readAnalyzeTicketResponse(response);
-      expect(body.ticket_id).toBe(sample.input.ticket_id);
+    try {
+      const response = await postTicket(OFFICIAL_SAMPLE_CASES[0]!.input);
+      expect(response.status).toBe(503);
+    } finally {
+      if (original === undefined) {
+        delete process.env.OPENROUTER_API_KEY;
+      } else {
+        process.env.OPENROUTER_API_KEY = original;
+      }
     }
   });
 });

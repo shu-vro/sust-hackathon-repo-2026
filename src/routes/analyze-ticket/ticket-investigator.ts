@@ -23,7 +23,7 @@ import { runInvestigatorAgent } from "./ticket-investigator.agent.ts";
 
 /**
  * Main entry point — structured LLM investigator with few-shot sample I/O.
- * Falls back to rule-based analysis when the API key is missing or the LLM fails.
+ * Requires OPENROUTER_API_KEY; does not fall back to rule-based responses.
  */
 export async function investigateTicket(
   body: AnalyzeTicketBody,

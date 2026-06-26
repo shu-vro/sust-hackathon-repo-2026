@@ -40,7 +40,6 @@ export function setupAnalyzeTicketTestServer(): AnalyzeTicketTestClient {
 
   beforeEach(() => {
     process.env.ENABLE_LLM_GUARDRAIL = "false";
-    delete process.env.OPENROUTER_API_KEY;
   });
 
   beforeAll(() => {

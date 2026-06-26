@@ -18,6 +18,8 @@ import {
 
 const { postTicket, request } = setupAnalyzeTicketTestServer();
 const validPayload = PUBLIC_SAMPLE_CASES[0]!.input;
+const LIVE_LLM_ROUTE_TIMEOUT_MS = 180_000;
+const liveRouteOpts = { timeout: LIVE_LLM_ROUTE_TIMEOUT_MS };
 
 describe("GET /health", () => {
   test("returns 200 with status ok", async () => {
@@ -39,14 +41,14 @@ describe("POST /analyze-ticket — success path", () => {
     const body = assertConformsToResponseSchema(raw);
     expect(body.ticket_id).toBe("TKT-001");
     assertCustomerReplySafety(body.customer_reply);
-  });
+  }, liveRouteOpts);
 
   test("accepts Content-Type application/json with charset", async () => {
     const response = await postTicket(validPayload, {
       "content-type": "application/json; charset=utf-8",
     });
     expect(response.status).toBe(200);
-  });
+  }, liveRouteOpts);
 
   test("accepts minimal payload with only ticket_id and complaint", async () => {
     const response = await postTicket({
@@ -57,7 +59,7 @@ describe("POST /analyze-ticket — success path", () => {
     const body = assertConformsToResponseSchema(await response.json());
     expect(body.ticket_id).toBe("TKT-MIN-ROUTE");
     expect(body.case_type).toBe("wrong_transfer");
-  });
+  }, liveRouteOpts);
 
   test("accepts empty transaction_history array", async () => {
     const response = await postTicket({
@@ -66,7 +68,7 @@ describe("POST /analyze-ticket — success path", () => {
     });
     expect(response.status).toBe(200);
     assertConformsToResponseSchema(await response.json());
-  });
+  }, liveRouteOpts);
 
   test("echoes ticket_id from request in response", async () => {
     const response = await postTicket({
@@ -76,7 +78,7 @@ describe("POST /analyze-ticket — success path", () => {
     expect(response.status).toBe(200);
     const body = await readAnalyzeTicketResponse(response);
     expect(body.ticket_id).toBe("TKT-ECHO-99");
-  });
+  }, liveRouteOpts);
 
   test.each(PUBLIC_SAMPLE_CASES.map((sample) => [sample.id, sample] as const))(
     "integration %s passes pipeline, schema, and safety checks",
@@ -110,6 +112,7 @@ describe("POST /analyze-ticket — success path", () => {
         sample.input.language,
       );
     },
+    liveRouteOpts,
   );
 
   test("allows legitimate complaint with injection phrase embedded in narrative", async () => {
@@ -124,7 +127,7 @@ describe("POST /analyze-ticket — success path", () => {
     const body = await readAnalyzeTicketResponse(response);
     expect(body.case_type).toBe("wrong_transfer");
     assertCustomerReplySafety(body.customer_reply);
-  });
+  }, liveRouteOpts);
 
   test("processes complaint with control characters after guardrail sanitization", async () => {
     const response = await postTicket({
@@ -135,7 +138,7 @@ describe("POST /analyze-ticket — success path", () => {
 
     expect(response.status).toBe(200);
     assertConformsToResponseSchema(await response.json());
-  });
+  }, liveRouteOpts);
 });
 
 describe("POST /analyze-ticket — validation errors (400)", () => {
