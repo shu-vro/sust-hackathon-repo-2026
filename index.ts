@@ -9,7 +9,6 @@ import {
 } from "./src/middleware/errorHandler.ts";
 import { analyzeTicketRouter } from "./src/routes/analyze-ticket/analyze-ticket.router.ts";
 import { healthRouter } from "./src/routes/health/health.router.ts";
-import { v1Router } from "./src/routes/v1/index.ts";
 
 export function createApp(): Application {
   const app = express();
@@ -25,7 +24,6 @@ export function createApp(): Application {
 
   app.use("/health", healthRouter);
   app.use("/analyze-ticket", analyzeTicketRouter);
-  app.use(config.apiPrefix, v1Router);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

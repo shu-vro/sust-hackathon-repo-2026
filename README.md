@@ -2,26 +2,14 @@
 
 Support-ticket triage API for the **SUST CSE Carnival 2026 · Codex Community Hackathon** (Online Preliminary).
 
-The service reads a customer complaint plus recent transaction history, investigates what happened, classifies the case, routes it to the right department, and drafts a safe customer-facing reply. It is a **copilot for support agents**, not an autonomous financial decision maker.
+An AI/API support copilot for digital finance. The service receives a customer complaint plus recent transaction history, investigates what actually happened, classifies and routes the case, and drafts a safe reply for support agents. It is a **copilot for support agents**, not an autonomous financial decision maker.
 
 **Judge-facing endpoints**
 
-| Method | Path              | Purpose                                       |
-| ------ | ----------------- | --------------------------------------------- |
-| `GET`  | `/health`         | Readiness check — returns `{"status":"ok"}`   |
-| `POST` | `/analyze-ticket` | Analyze one ticket and return structured JSON |
-
----
-
-## Tech stack
-
-| Layer       | Choice                                                  |
-| ----------- | ------------------------------------------------------- |
-| Runtime     | [Bun](https://bun.sh)                                   |
-| HTTP        | Express 5                                               |
-| Validation  | Zod 4                                                   |
-| Optional AI | LangChain + OpenRouter (`google/gemini-2.5-flash-lite`) |
-| Container   | Docker (`Dockerfile.bun`, `docker-compose.yml`)         |
+| Method | Path | Purpose |
+| ------ | ---- | ------- |
+| `GET` | `/health` | Readiness check — returns `{"status":"ok"}` within 60s of start |
+| `POST` | `/analyze-ticket` | Analyze one ticket; returns structured investigation JSON within 30s |
 
 ---
 
@@ -29,31 +17,21 @@ The service reads a customer complaint plus recent transaction history, investig
 
 ### Prerequisites
 
-- [Bun](https://bun.sh) ≥ 1.3.14
+- [Bun](https://bun.sh) ≥ 1.0
+- `OPENROUTER_API_KEY` (optional for local dev — see [Models](#models); required for LLM investigation and evaluation)
 - Optional: Docker + Docker Compose (for deployment)
-- Optional: `OPENROUTER_API_KEY` (for LLM input guardrail on ambiguous complaints)
 
-### Local development
+### Install and run locally
 
 ```bash
 git clone https://github.com/shu-vro/sust-hackathon-repo-2026.git
-cd sust-hackathon
+cd sust-hackathon-repo-2026
 bun install
+cp .env.example .env   # add your OPENROUTER_API_KEY
+bun run start          # http://0.0.0.0:8000
 ```
 
-Create a `.env` file in the project root (Bun loads it automatically):
-
-```env
-PORT=8000
-HOST=0.0.0.0
-NODE_ENV=development
-
-# Optional — enables LLM guardrail for ambiguous input
-OPENROUTER_API_KEY=your_key_here
-ENABLE_LLM_GUARDRAIL=true
-```
-
-Start the server:
+Bun loads `.env` automatically. See [Environment variables](#environment-variables) for all options.
 
 ```bash
 bun run dev      # watch mode
@@ -61,49 +39,23 @@ bun run dev      # watch mode
 bun run start    # production-style
 ```
 
-Verify:
+Verify readiness:
 
 ```bash
 curl http://localhost:8000/health
 # {"status":"ok"}
 ```
 
-### Docker
+Analyze a ticket (minimal example):
 
 ```bash
-docker build -f Dockerfile.bun -t sust-hackathon .
-docker compose --env-file .env up --build
-```
-
-Default container port is **3001** (see `Dockerfile.bun` / `docker-compose.yml`). Map `PORT` in `.env` if you need a different host port.
-
-### Tests
-
-```bash
-bun test
-# or only the analyze-ticket suite:
-bun test src/routes/analyze-ticket
-```
-
-Tests disable the LLM guardrail by default for speed and determinism. Live OpenRouter tests run only when `OPENROUTER_API_KEY` is set.
-
----
-
-## API usage
-
-### `POST /analyze-ticket`
-
-**Headers:** `Content-Type: application/json`
-
-**Minimal request:**
-
-```json
+curl -s -X POST http://localhost:8000/analyze-ticket \
+  -H "Content-Type: application/json" \
+  -d @- <<'EOF'
 {
   "ticket_id": "TKT-001",
-  "complaint": "I sent 5000 taka to a wrong number. Please help me get my money back.",
+  "complaint": "I sent 5000 taka to a wrong number around 2pm today.",
   "language": "en",
-  "channel": "in_app_chat",
-  "user_type": "customer",
   "transaction_history": [
     {
       "transaction_id": "TXN-9101",
@@ -115,145 +67,188 @@ Tests disable the LLM guardrail by default for speed and determinism. Live OpenR
     }
   ]
 }
+EOF
 ```
 
-**Success (**`200`**):**
+A worked sample request/response pair is in [`docs/sample-output.json`](docs/sample-output.json) (generated from `SAMPLE-01`).
 
-```json
-{
-  "ticket_id": "TKT-001",
-  "relevant_transaction_id": "TXN-9101",
-  "evidence_verdict": "consistent",
-  "case_type": "wrong_transfer",
-  "severity": "high",
-  "department": "dispute_resolution",
-  "agent_summary": "...",
-  "recommended_next_action": "...",
-  "customer_reply": "...",
-  "human_review_required": true,
-  "confidence": 0.9,
-  "reason_codes": ["wrong_transfer", "transaction_match"]
-}
+### Docker
+
+```bash
+cp .env.example .env   # set OPENROUTER_API_KEY and optional PORT
+docker compose --env-file .env up --build
+# listens on http://localhost:3001 by default (see docker-compose.yml)
 ```
 
-**Error responses**
+Build image only:
 
-| Code  | When                                                         |
-| ----- | ------------------------------------------------------------ |
-| `400` | Invalid JSON or Zod schema failure                           |
-| `415` | Missing / wrong `Content-Type`                               |
-| `422` | Input passed schema but failed security guardrails           |
+```bash
+docker build -f Dockerfile.bun -t sust-hackathon .
+docker run --env-file .env -p 3001:3001 sust-hackathon
+```
+
+---
+
+## API contract
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Returns `{"status":"ok"}` within 60s of start |
+| `POST` | `/analyze-ticket` | Accepts one ticket; returns structured investigation JSON within 30s |
+
+**Headers:** `Content-Type: application/json`
+
+### HTTP status codes
+
+| Code | When |
+|------|------|
+| `200` | Successful analysis |
+| `400` | Malformed JSON or missing required fields |
+| `415` | Missing or wrong `Content-Type` |
+| `422` | Valid schema but semantically blocked (e.g. prompt injection in complaint) |
 | `429` | Rate limit exceeded (60 req/min per IP on `/analyze-ticket`) |
-| `500` | Unhandled server error (no stack traces in response)         |
+| `500` | Internal error (no stack traces or secrets in body) |
 
-Full field definitions and enums: `[docs/problem-statement.md](docs/problem-statement.md)` and `[docs/initial-json-structure.md](docs/initial-json-structure.md)`.
+Request and response schemas match the [official problem statement](docs/problem-statement.md). Public sample cases live in `src/routes/analyze-ticket/fixtures/SUST_Preli_Sample_Cases.json` (also re-exported in `sample-cases.fixture.ts` for tests).
 
-Public sample cases used in tests: `[src/routes/analyze-ticket/sample-cases.fixture.ts](src/routes/analyze-ticket/sample-cases.fixture.ts)`.
+---
+
+## Tech stack
+
+| Layer | Choice |
+|-------|--------|
+| Runtime | [Bun](https://bun.sh) |
+| HTTP | Express 5 |
+| Validation | Zod 4 |
+| LLM orchestration | LangChain (`@langchain/openrouter`) |
+| Security middleware | Helmet, CORS, rate limiting |
+| Container | Docker (`Dockerfile.bun`, `docker-compose.yml`) |
 
 ---
 
 ## Architecture
 
-Processing is split into three layers:
+The service uses a three-layer pipeline:
 
 ```
 POST /analyze-ticket
         │
         ▼
-┌─────────────────────────┐
-│ 0. Zod request schema   │  400 on invalid shape
-└───────────┬─────────────┘
-            ▼
-┌─────────────────────────┐
-│ 1. Input guardrail      │  validate-user-input.ts
-│    (hard security gate) │  422 if blocked
-└───────────┬─────────────┘
-            ▼
-┌─────────────────────────┐
-│ 2. Ticket investigator  │  ticket-investigator.ts
-│    (complaint + TXN)    │  builds full response
-└───────────┬─────────────┘
-            ▼
-┌─────────────────────────┐
-│ 3. Output guardrail     │  planned — not yet implemented
-│    (soft safety filter) │  post-process customer_reply
-└───────────┬─────────────┘
-            ▼
-     Zod response schema → 200 JSON
+┌─────────────────────┐
+│  Layer 1 — Input    │  Zod schema validation, prompt-injection /
+│  guardrails         │  credential-harvesting detection, optional LLM gate
+└─────────┬───────────┘
+          ▼
+┌─────────────────────┐
+│  Layer 2 —          │  LLM investigator (primary) with few-shot examples
+│  Investigator       │  from the official sample pack; rule-based fallback
+└─────────┬───────────┘
+          ▼
+┌─────────────────────┐
+│  Layer 3 — Output   │  Structural guardrails (txn ID in history),
+│  safety             │  deterministic safety sanitization on replies
+└─────────────────────┘
 ```
 
-| Layer                | File(s)                                                               | Responsibility                                                                                         |
-| -------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| **1 — Input**        | `src/utils/validate-user-input.ts`, `src/utils/injection-patterns.ts` | Block prompt injection, credential-harvesting instructions, ultra-vague abuse; sanitize complaint text |
-| **2 — Investigator** | `src/routes/analyze-ticket/ticket-investigator.ts`                    | Parse complaint + history → classification, routing, replies                                           |
-| **2 — Fallback**     | `src/routes/analyze-ticket/ticket-investigator.rules.ts`              | Rule-based investigator used until Layer 2 is replaced with LLM logic                                  |
-| **3 — Output**       | _(planned)_                                                           | Rewrite unsafe `customer_reply` / `recommended_next_action` before responding                          |
+### AI approach
+
+1. **Primary path — structured LLM investigation** (`ticket-investigator.llm.ts`)
+   - Single-shot call with a system prompt that encodes evidence rules, enum taxonomy, routing, and safety constraints.
+   - Few-shot examples from all 10 official sample cases teach correct investigator reasoning.
+   - Model selection: `gemini-2.5-flash` for simpler tickets; `gemini-3.1-pro-preview` for complex evidence (multiple transactions, Bangla, merchant cases).
+   - Structured output via Zod schema; 25s internal timeout to stay under the 30s harness limit.
+
+2. **Fallback path — rule-based investigator** (`ticket-investigator.rules.ts`)
+   - Pattern matching on complaint text (English + Bangla), amount/time/phone extraction, transaction scoring, and evidence verdict derivation.
+   - Used when `OPENROUTER_API_KEY` is unset or the LLM call fails — keeps the API reachable and schema-valid during judging.
+
+3. **Evaluation pipeline** (development)
+   - `bun run eval:sample-cases` hits a running server with all 10 public cases in parallel.
+   - Optional Gemini Pro judge compares actual vs expected decision fields and safety compliance.
+
+Key source files:
+
+| File | Role |
+|------|------|
+| `src/routes/analyze-ticket/ticket-investigator.agent.ts` | LLM + rules orchestration |
+| `src/routes/analyze-ticket/ticket-investigator.prompt.ts` | Investigator prompt + few-shot I/O |
+| `src/routes/analyze-ticket/ticket-investigator.rules.ts` | Deterministic fallback investigator |
+| `src/routes/analyze-ticket/ticket-investigator.safety.ts` | Output safety post-processing |
+| `src/routes/analyze-ticket/ticket-investigator.guardrails.ts` | Structural output checks |
+| `src/utils/validate-user-input.ts` | Input guardrails (injection, harvesting) |
 
 Orchestration: `src/routes/analyze-ticket/analyze-ticket.controller.ts`
 
 ---
 
-## MODELS (AI usage)
+## Models
 
-| Model                          | Provider / route              | Where used                                                            | Why                                                                                                                                    |
-| ------------------------------ | ----------------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `google/gemini-2.5-flash-lite` | OpenRouter → Google AI Studio | **Layer 1 only** — optional LLM guardrail in `validate-user-input.ts` | Fast, cheap, low token count; resolves ambiguous injection vs legitimate complaints (e.g. customer reporting a scam that mentions OTP) |
-| Rule-based heuristics          | Local (no API)                | **Layer 2** — `ticket-investigator.rules.ts`                          | Deterministic baseline; passes all 10 public sample cases without network latency                                                      |
+All models are accessed through [OpenRouter](https://openrouter.ai), routed to **Google AI Studio**. No models are baked into the Docker image.
+
+| Model | OpenRouter ID | Where used | Why |
+|-------|---------------|------------|-----|
+| Gemini 2.5 Flash Lite | `google/gemini-2.5-flash-lite` | Input guardrail LLM gate (`ENABLE_LLM_GUARDRAIL=true`) | Low cost, fast, deterministic (`temperature=0`); catches adversarial complaints without adding latency to every simple case |
+| Gemini 2.5 Flash | `google/gemini-2.5-flash` | Primary investigator for straightforward tickets | Good speed/quality balance for simple evidence (short complaint, no Bangla, ≤1 txn) |
+| Gemini 3.1 Pro Preview | `google/gemini-3.1-pro-preview` | Investigator for complex tickets | Better reasoning for ambiguous matches, multilingual text, merchant/agent cases |
+| Gemini 3.1 Pro Preview | `google/gemini-3.1-pro-preview` | Offline evaluation judge (`evaluation/gemini-evaluator.ts`) | Structured comparison of actual vs expected outputs during dev testing |
 
 **Configuration:** `src/utils/models.ts`
 
-- Set `OPENROUTER_API_KEY` to enable the LLM guardrail.
+- Set `OPENROUTER_API_KEY` to enable LLM investigation and the optional input guardrail.
 - Set `ENABLE_LLM_GUARDRAIL=false` to force rules-only input checks (used in tests).
-- Temperature `0`, `maxTokens` 256 for guardrail calls.
-- OpenRouter provider order: `google-ai-studio`, `data_collection: deny`, no fallbacks.
+- Temperature `0` across all calls for reproducibility. Token limits are capped (256–1536) to control cost and latency.
 
-**Layer 2 (investigator)** is designed for LLM upgrade: implement `investigateTicket()` in `ticket-investigator.ts` using the same OpenRouter factory or another provider. The rule-based fallback can be removed once the LLM path is stable.
+**Cost reasoning:** Flash Lite handles cheap pre-screening; Flash covers the majority of tickets at lower cost; Pro is reserved for cases where evidence reasoning is hardest. No LLM credits are provided by organizers.
 
-**Cost note:** No LLM credits are provided by organizers. Guardrail LLM runs only on ambiguous input, not on every ticket.
+**Without an API key:** the service still runs using the rule-based fallback — useful for schema/health checks and CI, but LLM quality is higher for hidden cases.
 
 ---
 
 ## Safety logic
 
-Safety is enforced at multiple points to match the hackathon rubric (`docs/problem-statement.md` [§8](docs/problem-statement.md)).
+Safety is enforced at multiple layers, aligned with the [evaluation rubric](docs/problem-statement.md#8-safety-rules) penalties:
 
-### Layer 1 — Input guardrail (implemented)
+| Rule | Implementation |
+|------|----------------|
+| Never ask for PIN, OTP, password, or card number | Prompt instructions; regex stripping in `ticket-investigator.safety.ts`; automatic PIN/OTP warning appended to `customer_reply` |
+| Never promise refund, reversal, or unblock | Prompt instructions; regex replacement with “any eligible amount will be returned through official channels” |
+| Never direct to suspicious third parties | Regex replacement with “official support channels” |
+| Ignore prompt injection in complaints | Input guardrails (`injection-patterns.ts`, optional LLM gate); returns `422` for blocked input |
+| Escalate risky/ambiguous cases | `human_review_required` set by prompt + rules for disputes, fraud, inconsistent evidence, high severity |
+| Bangla replies | Rules generate Bangla `customer_reply` when `language=bn`; safety layer backfills Bangla if LLM returns English-only |
 
-1. **Sanitization** — strips control characters, normalizes whitespace.
-2. **Rule patterns** (`injection-patterns.ts`):
+Structural guardrails ensure `relevant_transaction_id` is always `null` when the ID is not in the provided history, and downgrade `evidence_verdict` to `insufficient_data` in that case.
 
-- Prompt injection / system override phrases → block or flag
-- Instructions to ask customers for PIN/OTP → block
-- Legitimate fintech complaint signals → allow (including Bangla)
+Automated safety checks live in `src/routes/analyze-ticket/test-assertions.ts` (credential solicitation, unauthorized refund language, Bangla reply when requested).
 
-1. **Decision logic:**
+---
 
-- Pure injection or harvesting with no legitimate content → **422**
-- Injection mixed with a real complaint → **allow** (analyze the ticket)
-- Phishing reports that mention OTP in past tense → **allow**
+## Environment variables
 
-1. **Optional LLM gate** — when rules are ambiguous and `OPENROUTER_API_KEY` is set, Gemini flash-lite classifies injection vs legitimate complaint.
+See [`.env.example`](.env.example):
 
-### Layer 2 — Investigator templates (implemented in rules fallback)
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OPENROUTER_API_KEY` | For LLM path | — | OpenRouter API key |
+| `PORT` | No | `8000` (local), `3001` (Docker) | HTTP port |
+| `HOST` | No | `0.0.0.0` | Bind address |
+| `ENABLE_LLM_GUARDRAIL` | No | `true` | LLM-based input gate on complaints |
+| `APP_VERSION` | No | `0.1.0` | App version (health metadata) |
+| `NODE_ENV` | No | `development` | `production` in Docker |
 
-The rule-based investigator generates `customer_reply` text that:
+---
 
-- Warns customers **not** to share PIN/OTP (never asks for them)
-- Avoids unauthorized refund/reversal promises — uses _"any eligible amount will be returned through official channels"_
-- Returns Bangla replies when `language: "bn"`
-- Sets `human_review_required` for disputes, fraud, inconsistent evidence, duplicates, agent cash-in
+## Testing
 
-### Layer 3 — Output guardrail (not yet implemented)
+```bash
+bun test                                    # unit + integration (no API key needed)
+bun run test:live-llm                       # all 10 sample cases via live LLM (needs key)
+bun run start &                             # in another terminal:
+bun run eval:sample-cases --schema-only     # HTTP + schema check against running server
+bun run eval:sample-cases                   # full parallel eval with Gemini Pro judge
+```
 
-A post-processing pass on `customer_reply` and `recommended_next_action` is planned to catch unsafe wording if Layer 2 uses an LLM. Until then, rely on Layer 2 templates and tests in `test-assertions.ts`.
-
-### Automated safety tests
-
-`src/routes/analyze-ticket/test-assertions.ts` checks responses for:
-
-- No credential solicitation patterns
-- No unauthorized refund language
-- Bangla reply when requested
+Tests disable the LLM guardrail by default for speed and determinism. Official sample cases: `src/routes/analyze-ticket/fixtures/SUST_Preli_Sample_Cases.json`
 
 ---
 
@@ -266,45 +261,63 @@ src/
   middleware/                     # rate limit, JSON content-type, errors
   routes/analyze-ticket/
     analyze-ticket.controller.ts  # pipeline orchestration
-    analyze-ticket.schema.ts        # Zod input/output + types
-    ticket-investigator.ts          # Layer 2 — main investigator entry
-    ticket-investigator.rules.ts    # Layer 2 — rule-based fallback
-    sample-cases.fixture.ts         # 10 public sample cases
-    analyze-ticket.test.ts          # schema + integration tests
-  utils/
-    validate-user-input.ts          # Layer 1 guardrail
-    models.ts                       # OpenRouter / LangChain factory
+    analyze-ticket.schema.ts    # Zod input/output + types
+    ticket-investigator.ts      # Layer 2 — main investigator entry
+    ticket-investigator.agent.ts # LLM + rules orchestration
+    ticket-investigator.llm.ts    # structured LLM investigation
+    ticket-investigator.rules.ts  # Layer 2 — rule-based fallback
+    ticket-investigator.safety.ts # output safety post-processing
+    fixtures/                     # official sample case pack
 docs/
-  problem-statement.md              # full hackathon spec
-  initial-json-structure.md         # work breakdown + sample reference
+  problem-statement.md            # full hackathon spec
+  sample-output.json              # worked SAMPLE-01 request/response
 ```
-
----
-
-## Limitations
-
-These are intentional gaps or known constraints for manual review / finalist scoring:
-
-| Area                     | Limitation                                                                                                                                                                   |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Investigator**         | Layer 2 uses **rule-based heuristics**, not an LLM. Nuanced Banglish, edge phrasing, and hidden judge cases may be misclassified until `ticket-investigator.ts` is upgraded. |
-| **Output safety**        | Layer 3 output guardrail is **not implemented**. An LLM-based investigator could emit unsafe `customer_reply` text without a post-filter.                                    |
-| **Input guardrail**      | Unicode-split or heavily obfuscated injection may bypass regex rules (documented in tests). LLM guardrail helps but is optional and network-dependent.                       |
-| **Transaction matching** | Ambiguous multi-match scenarios return `relevant_transaction_id: null` — correct per spec, but depends on amount regex and keyword detection.                                |
-| **Evidence reasoning**   | “Inconsistent” verdict uses a simple repeat-counterparty heuristic, not full ledger simulation.                                                                              |
-| **No persistence**       | Stateless API — no database, ticket store, or audit log.                                                                                                                     |
-| **No real payments**     | Synthetic data only; no bKash or production integration.                                                                                                                     |
-| **Rate limiting**        | In-memory per-IP limit; not suitable for multi-instance deploy without a shared store.                                                                                       |
-| **Response quality**     | `agent_summary` / `customer_reply` are template-driven in the rules path; wording will not match sample outputs word-for-word (judges accept functional equivalence).        |
 
 ---
 
 ## Assumptions
 
-- Judge harness calls `GET /health` and `POST /analyze-ticket` at the **root** paths (not under `/api/v1`).
-- Complaints and transaction histories are **synthetic** evaluation data.
-- `relevant_transaction_id` must be `null` or an ID present in the request’s `transaction_history`.
+- All complaints and transaction histories are **synthetic**; no real payment system integration.
+- The service is an **internal agent copilot**, not an autonomous financial decision maker.
+- Counterparty phone numbers use Bangladesh `+880` format; Bengali digits in complaints are normalized.
+- `transaction_history` contains 0–5 entries; empty history is valid for phishing-only cases.
+- `relevant_transaction_id` must be `null` or an ID present in the request's `transaction_history`.
 - Enum values must match the spec exactly (`case_type`, `department`, `evidence_verdict`, etc.).
+- Judge harness calls only `/health` and `/analyze-ticket` at the service root (no `/api` prefix).
+
+## Known limitations
+
+- Rule-based fallback covers common patterns but will miss nuanced hidden-case edge cases that the LLM handles better.
+- LLM responses may vary in wording; decision fields are constrained by schema + guardrails but not byte-identical to reference outputs.
+- Multilingual quality depends on model selection; Bangla is supported but mixed Banglish is less tested.
+- Unicode-split or heavily obfuscated injection may bypass regex rules; the optional LLM guardrail helps but is network-dependent.
+- No persistent storage, queuing, or multi-ticket batch API — one ticket per request.
+- Rate limiting is in-memory per IP; not suitable for multi-instance deploy without a shared store.
+- Evaluation Gemini judge adds cost and is intended for development, not production runtime.
+
+---
+
+## Project scripts
+
+| Script | Command |
+|--------|---------|
+| Start server | `bun run start` |
+| Dev (watch) | `bun run dev` |
+| Tests | `bun test` |
+| Build sample pairs fixture | `bun run build:sample-pairs` |
+| Evaluate against running API | `bun run eval:sample-cases` |
+
+---
+
+## Submission checklist
+
+- [x] `GET /health` and `POST /analyze-ticket` implemented
+- [x] `package.json` / `bun.lock` dependency lockfile
+- [x] `README.md` with setup, stack, AI approach, safety, models, limitations
+- [x] `.env.example`
+- [x] `docs/sample-output.json` from public sample case `SAMPLE-01`
+- [x] Docker runbook (`Dockerfile.bun`, `docker-compose.yml`)
+- [ ] Live deployment URL (submit separately)
 
 ---
 
@@ -319,3 +332,5 @@ These are intentional gaps or known constraints for manual review / finalist sco
 ## License
 
 Private hackathon submission — see repository owner for terms.
+
+*Built for the QueueStorm Investigator preliminary challenge. See [`docs/problem-statement.md`](docs/problem-statement.md) for the full API specification.*

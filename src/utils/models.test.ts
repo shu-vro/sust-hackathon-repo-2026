@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import buildModels, { DEFAULT_MODEL } from "./models.ts";
+import buildModels, { DEFAULT_MODEL, DISABLED_REASONING_KWARGS } from "./models.ts";
 
 describe("buildModels", () => {
   test("throws when OPENROUTER_API_KEY is missing", async () => {
@@ -14,6 +14,23 @@ describe("buildModels", () => {
     } finally {
       if (original) {
         process.env.OPENROUTER_API_KEY = original;
+      }
+    }
+  });
+
+  test("disables OpenRouter reasoning on all models", async () => {
+    const original = process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY = "test-key";
+
+    try {
+      const models = await buildModels();
+      const model = await models.openrouter();
+      expect(model.modelKwargs).toEqual(DISABLED_REASONING_KWARGS);
+    } finally {
+      if (original) {
+        process.env.OPENROUTER_API_KEY = original;
+      } else {
+        delete process.env.OPENROUTER_API_KEY;
       }
     }
   });

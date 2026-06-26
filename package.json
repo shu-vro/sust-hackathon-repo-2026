@@ -6,7 +6,11 @@
   "scripts": {
     "start": "bun run index.ts",
     "dev": "bun --watch index.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "test:live-llm": "RUN_LIVE_LLM=1 bun test --timeout=180000 --max-concurrency=2 src/routes/analyze-ticket/sample-cases.agent.test.ts",
+    "build:sample-pairs": "bun run scripts/build-sample-case-pairs.ts",
+    "eval:sample-cases": "bun run scripts/evaluate-sample-cases.ts",
+    "test:live-eval": "RUN_LIVE_EVAL=1 bun test --timeout=180000 --max-concurrency=1 src/routes/analyze-ticket/evaluation/sample-cases.parallel-eval.test.ts"
   },
   "engines": {
     "bun": ">=1.0.0"

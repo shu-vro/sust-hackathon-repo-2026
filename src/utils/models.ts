@@ -6,8 +6,22 @@ import {
 /** Cheap + fast; good default for guardrails and ticket analysis in a hackathon. */
 export const DEFAULT_MODEL = "google/gemini-2.5-flash-lite";
 
+/** Fast Gemini model for simpler ticket investigation tasks. */
+export const FLASH_MODEL = "google/gemini-2.5-flash";
+
+/** Heavier Gemini model for complex evidence analysis. */
+export const PRO_MODEL = "google/gemini-3.1-pro-preview";
+
 /** Prefer Google AI Studio routing for the configured Gemini flash-lite model. */
 export const DEFAULT_PROVIDERS = ["google-ai-studio"] as const;
+
+/** Passed through modelKwargs to skip reasoning/thinking tokens on OpenRouter. */
+export const DISABLED_REASONING_KWARGS = {
+  reasoning: {
+    effort: "none",
+    enabled: false,
+  },
+} as const;
 
 export type ModelFactoryOptions = Partial<
   Pick<ChatOpenRouterInput, "temperature" | "maxTokens" | "topP" | "stop">
@@ -49,6 +63,7 @@ export async function buildModels(): Promise<ModelFactory> {
         topP: options.topP,
         stop: options.stop,
         siteName: "QueueStorm Investigator",
+        modelKwargs: DISABLED_REASONING_KWARGS,
       });
     },
   };
@@ -61,6 +76,28 @@ export async function getGuardrailModel(): Promise<ChatOpenRouter> {
     temperature: 0,
     maxTokens: 256,
   });
+}
+
+/** Fast investigator model for straightforward cases. */
+export async function getInvestigatorFlashModel(): Promise<ChatOpenRouter> {
+  const models = await buildModels();
+  return models.openrouter(FLASH_MODEL, DEFAULT_PROVIDERS, {
+    temperature: 0,
+    maxTokens: 1024,
+  });
+}
+
+/** Pro investigator model for complex evidence analysis. */
+export async function getInvestigatorProModel(): Promise<ChatOpenRouter> {
+  const models = await buildModels();
+  return models.openrouter(PRO_MODEL, DEFAULT_PROVIDERS, {
+    temperature: 0,
+    maxTokens: 1536,
+  });
+}
+
+export function hasOpenRouterApiKey(): boolean {
+  return Boolean(process.env.OPENROUTER_API_KEY?.trim());
 }
 
 export default buildModels;

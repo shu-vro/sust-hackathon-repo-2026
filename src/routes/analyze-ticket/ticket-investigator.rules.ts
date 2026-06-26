@@ -77,7 +77,7 @@ const VAGUE_PATTERNS = [
   /\bsomething\b.{0,20}\bwrong\b/i,
 ];
 
-interface ParsedComplaint {
+export interface ParsedComplaint {
   amounts: number[];
   isPhishing: boolean;
   isDuplicate: boolean;
@@ -123,7 +123,7 @@ function extractAmounts(complaint: string): number[] {
   return [...amounts];
 }
 
-function parseComplaint(complaint: string): ParsedComplaint {
+export function parseComplaint(complaint: string): ParsedComplaint {
   const amounts = extractAmounts(complaint);
   const matches = (patterns: RegExp[]) =>
     patterns.some((pattern) => pattern.test(complaint));
@@ -164,7 +164,7 @@ function sortByTimestamp(
   );
 }
 
-function findDuplicatePair(
+export function findDuplicatePair(
   transactions: AnalyzeTicketTransaction[],
 ): AnalyzeTicketTransaction | null {
   const completed = sortByTimestamp(
@@ -199,7 +199,7 @@ function matchByAmount(
   return transactions.filter((txn) => txn.amount === amount);
 }
 
-function hasEstablishedRecipientPattern(
+export function hasEstablishedRecipientPattern(
   transactions: AnalyzeTicketTransaction[],
   target: AnalyzeTicketTransaction,
 ): boolean {
@@ -220,7 +220,7 @@ function hasPendingCashIn(history: AnalyzeTicketTransaction[]): boolean {
   );
 }
 
-function inferCaseType(
+export function inferCaseType(
   body: AnalyzeTicketBody,
   parsed: ParsedComplaint,
 ): CaseType {
@@ -242,7 +242,7 @@ function inferCaseType(
   return "other";
 }
 
-function routeDepartment(caseType: CaseType): Department {
+export function routeDepartment(caseType: CaseType): Department {
   const map: Record<CaseType, Department> = {
     wrong_transfer: "dispute_resolution",
     payment_failed: "payments_ops",
@@ -256,7 +256,7 @@ function routeDepartment(caseType: CaseType): Department {
   return map[caseType];
 }
 
-function inferSeverity(caseType: CaseType): Severity {
+export function inferSeverity(caseType: CaseType): Severity {
   const map: Record<CaseType, Severity> = {
     wrong_transfer: "high",
     payment_failed: "high",
@@ -270,7 +270,7 @@ function inferSeverity(caseType: CaseType): Severity {
   return map[caseType];
 }
 
-function needsHumanReview(
+export function needsHumanReview(
   caseType: CaseType,
   evidenceVerdict: EvidenceVerdict,
   ambiguous: boolean,
@@ -289,7 +289,7 @@ function needsHumanReview(
   return false;
 }
 
-function pickTransaction(
+export function pickTransaction(
   body: AnalyzeTicketBody,
   parsed: ParsedComplaint,
   caseType: CaseType,
@@ -365,7 +365,7 @@ function pickTransaction(
   return { transaction: sorted[0] ?? null, ambiguous: false };
 }
 
-function inferEvidenceVerdict(
+export function inferEvidenceVerdict(
   parsed: ParsedComplaint,
   caseType: CaseType,
   transaction: AnalyzeTicketTransaction | null,
@@ -405,7 +405,33 @@ function buildReasonCodes(
   }
   if (caseType === "duplicate_payment") codes.push("duplicate_payment");
   if (caseType === "phishing_or_social_engineering") {
-    codes.push("phishing", "critical_escalation");
+    codes.push("phishing", "credential_protection", "critical_escalation");
+  }
+  if (caseType === "other" && evidenceVerdict === "insufficient_data") {
+    codes.push("vague_complaint");
+  }
+  if (caseType === "agent_cash_in_issue") {
+    codes.push("agent_cash_in", "agent_ops");
+    if (transaction?.status === "pending") codes.push("pending_transaction");
+  }
+  if (caseType === "merchant_settlement_delay") {
+    codes.push("merchant_settlement", "delay");
+    if (transaction?.status === "pending") codes.push("pending");
+  }
+  if (
+    caseType === "wrong_transfer" &&
+    evidenceVerdict === "consistent" &&
+    transaction
+  ) {
+    codes.push("dispute_initiated");
+  }
+  if (caseType === "wrong_transfer" && evidenceVerdict === "inconsistent") {
+    codes.push("wrong_transfer_claim", "established_recipient_pattern");
+  }
+  if (caseType === "payment_failed") codes.push("potential_balance_deduction");
+  if (caseType === "refund_request") codes.push("merchant_policy_dependent");
+  if (caseType === "duplicate_payment" && transaction) {
+    codes.push("biller_verification_required");
   }
   return [...new Set(codes)].slice(0, 8);
 }
@@ -534,7 +560,13 @@ function inferConfidence(
   evidenceVerdict: EvidenceVerdict,
   transaction: AnalyzeTicketTransaction | null,
   ambiguous: boolean,
+  caseType: CaseType,
 ): number {
+  if (caseType === "phishing_or_social_engineering") return 0.95;
+  if (caseType === "merchant_settlement_delay" && transaction) return 0.92;
+  if (caseType === "duplicate_payment" && transaction) return 0.93;
+  if (caseType === "agent_cash_in_issue" && transaction) return 0.88;
+  if (caseType === "refund_request" && transaction) return 0.85;
   if (ambiguous) return 0.65;
   if (evidenceVerdict === "inconsistent") return 0.75;
   if (evidenceVerdict === "insufficient_data") return 0.6;
@@ -542,10 +574,22 @@ function inferConfidence(
   return 0.7;
 }
 
-/** Temporary rule-based fallback — replace by implementing `investigateTicket` in ticket-investigator.ts */
-export function investigateTicketWithRules(
-  body: AnalyzeTicketBody,
-): AnalyzeTicketResponse {
+export interface RulesAnalysis {
+  parsed: ParsedComplaint;
+  case_type: CaseType;
+  relevant_transaction_id: string | null;
+  transaction: AnalyzeTicketTransaction | null;
+  ambiguous: boolean;
+  evidence_verdict: EvidenceVerdict;
+  severity: Severity;
+  department: Department;
+  human_review_required: boolean;
+  confidence: number;
+  reason_codes: string[];
+}
+
+/** Deterministic analysis snapshot used by investigation tools and the agent. */
+export function buildRulesAnalysis(body: AnalyzeTicketBody): RulesAnalysis {
   const parsed = parseComplaint(body.complaint);
   const caseType = inferCaseType(body, parsed);
   const { transaction, ambiguous } = pickTransaction(body, parsed, caseType);
@@ -574,32 +618,59 @@ export function investigateTicketWithRules(
   );
 
   return {
-    ticket_id: body.ticket_id,
-    relevant_transaction_id: transaction?.transaction_id ?? null,
-    evidence_verdict: evidenceVerdict,
+    parsed,
     case_type: caseType,
+    relevant_transaction_id: transaction?.transaction_id ?? null,
+    transaction,
+    ambiguous,
+    evidence_verdict: evidenceVerdict,
     severity,
     department,
-    agent_summary: buildAgentSummary(
-      caseType,
-      transaction,
-      evidenceVerdict,
-      parsed,
-    ),
-    recommended_next_action: buildRecommendedAction(
-      caseType,
-      transaction,
-      evidenceVerdict,
-      parsed,
-    ),
-    customer_reply: buildCustomerReply(body, caseType, transaction, parsed),
     human_review_required,
-    confidence: inferConfidence(evidenceVerdict, transaction, ambiguous),
+    confidence: inferConfidence(
+      evidenceVerdict,
+      transaction,
+      ambiguous,
+      caseType,
+    ),
     reason_codes: buildReasonCodes(
       caseType,
       evidenceVerdict,
       transaction,
       ambiguous,
     ),
+  };
+}
+
+/** Rule-based fallback when the LLM agent is unavailable or fails. */
+export function investigateTicketWithRules(
+  body: AnalyzeTicketBody,
+): AnalyzeTicketResponse {
+  const analysis = buildRulesAnalysis(body);
+  const { parsed, transaction } = analysis;
+
+  return {
+    ticket_id: body.ticket_id,
+    relevant_transaction_id: analysis.relevant_transaction_id,
+    evidence_verdict: analysis.evidence_verdict,
+    case_type: analysis.case_type,
+    severity: analysis.severity,
+    department: analysis.department,
+    agent_summary: buildAgentSummary(
+      analysis.case_type,
+      transaction,
+      analysis.evidence_verdict,
+      parsed,
+    ),
+    recommended_next_action: buildRecommendedAction(
+      analysis.case_type,
+      transaction,
+      analysis.evidence_verdict,
+      parsed,
+    ),
+    customer_reply: buildCustomerReply(body, analysis.case_type, transaction, parsed),
+    human_review_required: analysis.human_review_required,
+    confidence: analysis.confidence,
+    reason_codes: analysis.reason_codes,
   };
 }

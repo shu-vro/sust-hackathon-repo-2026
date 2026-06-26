@@ -25,7 +25,7 @@ export const postAnalyzeTicket = asyncHandler(
       return;
     }
 
-    const response = investigateTicket(gate.sanitized);
+    const response = await investigateTicket(gate.sanitized);
     const validated = analyzeTicketResponseSchema.parse(response);
 
     res.status(200).json(validated);

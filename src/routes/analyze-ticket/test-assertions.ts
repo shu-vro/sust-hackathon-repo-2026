@@ -1,5 +1,8 @@
 import { expect } from "bun:test";
-import type { AnalyzeTicketResponse } from "./analyze-ticket.schema.ts";
+import {
+  analyzeTicketResponseSchema,
+  type AnalyzeTicketResponse,
+} from "./analyze-ticket.schema.ts";
 
 const UNAUTHORIZED_REFUND_PATTERNS = [
   /\bwe will refund\b/i,
@@ -39,6 +42,59 @@ export interface FunctionalExpectation {
   severity: AnalyzeTicketResponse["severity"];
   department: AnalyzeTicketResponse["department"];
   human_review_required: boolean;
+}
+
+export interface ApiErrorShape {
+  error: { code: string; message: string; details?: unknown };
+}
+
+export function assertConformsToResponseSchema(
+  body: unknown,
+): AnalyzeTicketResponse {
+  const parsed = analyzeTicketResponseSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new Error(
+      `Response failed schema validation: ${JSON.stringify(parsed.error.flatten())}`,
+    );
+  }
+  expect(parsed.success).toBe(true);
+  return parsed.data;
+}
+
+export function assertRequiredResponseFields(body: Record<string, unknown>): void {
+  const required = [
+    "ticket_id",
+    "relevant_transaction_id",
+    "evidence_verdict",
+    "case_type",
+    "severity",
+    "department",
+    "agent_summary",
+    "recommended_next_action",
+    "customer_reply",
+    "human_review_required",
+  ] as const;
+
+  for (const key of required) {
+    expect(body).toHaveProperty(key);
+  }
+
+  expect(typeof body.ticket_id).toBe("string");
+  expect(
+    body.relevant_transaction_id === null ||
+      typeof body.relevant_transaction_id === "string",
+  ).toBe(true);
+  expect(typeof body.human_review_required).toBe("boolean");
+  expect(typeof body.agent_summary).toBe("string");
+  expect(typeof body.recommended_next_action).toBe("string");
+  expect(typeof body.customer_reply).toBe("string");
+}
+
+export function assertErrorResponseSafe(body: ApiErrorShape): void {
+  const serialized = JSON.stringify(body);
+  expect(serialized).not.toMatch(/OPENROUTER_API_KEY/i);
+  expect(serialized).not.toMatch(/at\s+\S+\.(ts|js):\d+/);
+  expect(serialized).not.toMatch(/stack/i);
 }
 
 export function assertFunctionallyEquivalent(
@@ -113,4 +169,118 @@ export function assertBanglaReplyWhenRequested(
   if (language === "bn") {
     expect(/[\u0980-\u09FF]/u.test(reply)).toBe(true);
   }
+}
+
+/** Full expected_output shape from SUST_Preli_Sample_Cases.json. */
+export interface OfficialSampleExpectation {
+  ticket_id: string;
+  relevant_transaction_id: string | null;
+  evidence_verdict: AnalyzeTicketResponse["evidence_verdict"];
+  case_type: AnalyzeTicketResponse["case_type"];
+  severity: AnalyzeTicketResponse["severity"];
+  department: AnalyzeTicketResponse["department"];
+  agent_summary: string;
+  recommended_next_action: string;
+  customer_reply: string;
+  human_review_required: boolean;
+  confidence?: number;
+  reason_codes?: string[];
+}
+
+/**
+ * Assert agent output matches the official sample pack per hackathon guidance:
+ * exact decision fields, safe customer_reply, and reasonable text/reason_codes.
+ */
+export function assertMatchesOfficialSampleOutput(
+  actual: AnalyzeTicketResponse,
+  expected: OfficialSampleExpectation,
+  input: { language?: string; user_type?: string },
+): void {
+  assertFunctionallyEquivalent(actual, expected);
+
+  assertCustomerReplySafety(actual.customer_reply, {
+    requireCredentialWarning: input.user_type !== "merchant",
+  });
+  assertBanglaReplyWhenRequested(actual.customer_reply, input.language);
+
+  if (expected.relevant_transaction_id) {
+    expect(actual.agent_summary).toContain(expected.relevant_transaction_id);
+    if (expected.customer_reply.includes(expected.relevant_transaction_id)) {
+      expect(actual.customer_reply).toContain(expected.relevant_transaction_id);
+    }
+  } else {
+    expect(actual.relevant_transaction_id).toBeNull();
+  }
+
+  if (expected.confidence !== undefined) {
+    expect(actual.confidence).toBeDefined();
+    expect(actual.confidence!).toBeGreaterThanOrEqual(0);
+    expect(actual.confidence!).toBeLessThanOrEqual(1);
+    expect(Math.abs(actual.confidence! - expected.confidence)).toBeLessThanOrEqual(
+      0.2,
+    );
+  }
+
+  if (expected.reason_codes?.length) {
+    expect(actual.reason_codes?.length).toBeGreaterThan(0);
+    expect(actual.reason_codes).toContain(actual.case_type);
+
+    const overlap = expected.reason_codes.filter((code) =>
+      actual.reason_codes?.includes(code),
+    );
+    expect(overlap.length).toBeGreaterThan(0);
+  }
+
+  assertCaseSpecificOutputQuality(actual, expected);
+}
+
+function assertCaseSpecificOutputQuality(
+  actual: AnalyzeTicketResponse,
+  expected: OfficialSampleExpectation,
+): void {
+  const reply = actual.customer_reply.toLowerCase();
+  const combined = `${actual.customer_reply} ${actual.recommended_next_action}`.toLowerCase();
+
+  switch (expected.case_type) {
+    case "payment_failed":
+    case "duplicate_payment":
+      expect(reply).toMatch(
+        /eligible amount will be returned|official channels/,
+      );
+      expect(reply).not.toMatch(/we will refund/);
+      break;
+    case "refund_request":
+      expect(reply).not.toMatch(/we will refund|will be refunded/);
+      expect(reply).toMatch(/merchant/);
+      break;
+    case "phishing_or_social_engineering":
+      expect(reply).toMatch(/never ask|do not share|don't share/);
+      break;
+    case "other":
+      if (expected.evidence_verdict === "insufficient_data") {
+        expect(combined).toMatch(
+          /transaction id|amount|detail|clarif|share|wrong|what went wrong/,
+        );
+      }
+      break;
+    case "wrong_transfer":
+      if (expected.evidence_verdict === "insufficient_data") {
+        expect(combined).toMatch(
+          /brother|number|clarif|identify|which transaction|share/,
+        );
+      }
+      break;
+    case "merchant_settlement_delay":
+      expect(reply).toMatch(/settlement|merchant/);
+      break;
+    case "agent_cash_in_issue":
+      expect(actual.agent_summary.toLowerCase()).toMatch(/cash|pending|agent/);
+      break;
+    default:
+      break;
+  }
+
+  expect(actual.agent_summary.length).toBeGreaterThan(20);
+  expect(actual.recommended_next_action.length).toBeGreaterThan(20);
+  expect(actual.customer_reply.length).toBeGreaterThan(20);
 }
