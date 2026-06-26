@@ -5,7 +5,7 @@
 #   docker compose down
 #
 # Expected variables in .env (see src/config/env.ts):
-#   PORT=3001
+#   PORT=8000
 #   HOST=0.0.0.0
 #   OPENROUTER_API_KEY=...
 #   ENABLE_LLM_GUARDRAIL=true
@@ -18,11 +18,11 @@ services:
       dockerfile: Dockerfile.bun
     image: sust-hackathon:latest
     ports:
-      - "${PORT:-3001}:${PORT:-3001}"
+      - "${PORT:-8000}:${PORT:-8000}"
     environment:
       NODE_ENV: production
       BUN_ENV: production
-      PORT: ${PORT:-3001}
+      PORT: ${PORT:-8000}
       HOST: ${HOST:-0.0.0.0}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       ENABLE_LLM_GUARDRAIL: ${ENABLE_LLM_GUARDRAIL:-true}
