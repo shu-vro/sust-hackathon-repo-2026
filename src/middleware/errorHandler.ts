@@ -1,4 +1,9 @@
-import type { ErrorRequestHandler, Request, Response, NextFunction } from "express";
+import type {
+  ErrorRequestHandler,
+  Request,
+  Response,
+  NextFunction,
+} from "express";
 import { ZodError } from "zod";
 
 export class HttpError extends Error {
@@ -45,6 +50,16 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     return;
   }
 
+  if (err.type === "entity.parse.failed") {
+    res.status(400).json({
+      error: {
+        code: "validation_error",
+        message: "Malformed JSON body",
+      },
+    });
+    return;
+  }
+
   console.error("[error]", err);
   res.status(500).json({
     error: { code: "internal_error", message: "Internal server error" },
@@ -53,7 +68,11 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
 
 export const asyncHandler =
   <T extends Request>(
-    fn: (req: T, res: Response, next: NextFunction) => Promise<unknown> | unknown,
+    fn: (
+      req: T,
+      res: Response,
+      next: NextFunction,
+    ) => Promise<unknown> | unknown,
   ) =>
   (req: T, res: Response, next: NextFunction): void => {
     Promise.resolve(fn(req, res, next)).catch(next);

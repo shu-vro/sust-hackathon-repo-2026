@@ -1,0 +1,32 @@
+# Dependencies (reinstalled in image)
+node_modules/
+
+# Secrets — never bake into the image
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Git and editor tooling
+.git/
+.gitignore
+.cursor/
+.agents/
+
+# Local dev / CI artifacts
+.puku/
+coverage/
+*.log
+
+# Docs and planning (not needed at runtime)
+docs/
+tasks/
+
+# Tests
+**/*.test.ts
+**/*.spec.ts
+
+# Docker (avoid recursive context noise)
+Dockerfile*
+docker-compose*.yml
+.dockerignore

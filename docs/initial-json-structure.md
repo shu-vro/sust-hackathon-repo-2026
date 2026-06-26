@@ -220,6 +220,8 @@ These are scoring penalties if violated:
 14. Language-aware reply generation
 15. Adversarial prompt injection guard in system prompt
 
+**Input guardrail (implemented):** see [validate-user-input-pipeline.md](./validate-user-input-pipeline.md) for the pre-analyzer security gate (`validateUserInput`).
+
 ### Phase 5 — Testing
 
 16. Run all 10 sample cases locally

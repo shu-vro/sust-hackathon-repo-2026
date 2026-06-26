@@ -1,0 +1,44 @@
+# syntax=docker/dockerfile:1
+#
+# Bun production image for sust-hackathon (QueueStorm Investigator API)
+#
+#   docker build -f Dockerfile.bun -t sust-hackathon .
+#   docker compose --env-file .env up --build
+
+ARG BUN_VERSION=1.3.14-alpine
+ARG BUN_IMAGE=oven/bun:${BUN_VERSION}
+
+FROM ${BUN_IMAGE} AS deps
+
+WORKDIR /app
+
+COPY package.json bun.lock ./
+
+RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked \
+  bun install --frozen-lockfile --production --ignore-scripts
+
+FROM ${BUN_IMAGE} AS release
+
+WORKDIR /app
+
+ENV NODE_ENV=production \
+  BUN_ENV=production \
+  HOST=0.0.0.0 \
+  PORT=3001
+
+COPY --from=deps --chown=bun:bun /app/node_modules ./node_modules
+COPY --chown=bun:bun package.json bun.lock ./
+
+# Application source (respects .dockerignore; .env is excluded)
+COPY --chown=bun:bun . .
+
+USER bun
+
+EXPOSE 3001
+
+STOPSIGNAL SIGTERM
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
+  CMD bun -e "const p=Number(process.env.PORT??3001);fetch(`http://127.0.0.1:${p}/health`).then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+CMD ["bun", "run", "start"]
